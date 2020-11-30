@@ -1,0 +1,2 @@
+This is an Plotly/Dash application that performs exploratory data analysis on WhatsApp chats and presents the user with valuable insights.
+It's still under heavy production and this is just a scrappy ReadMe file for the basic concept of this repository more in detail soon enough, I hope.

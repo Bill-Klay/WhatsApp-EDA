@@ -27,7 +27,7 @@ warnings.filterwarnings('ignore')
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+app = dash.Dash(__name__, external_stylesheets=external_stylesheets, suppress_callback_exceptions=True)
 
 # List of global variables
 df = pd.DataFrame()
@@ -75,26 +75,17 @@ app.layout = html.Div([
     html.Div(id = 'file-details')
 ])
 
-# File upload text change
-@app.callback(Output('upload-data', 'children'),
-              Input('upload-data', 'filename'))
-def fileUpload (filename):
-    if filename is None:
-        return html.Div([
-            'Drag and Drop or ',
-            html.A('Select Files')
-        ])
-    else:
-        return html.Div([
-            filename,
-            html.A(' Update file')
-        ])
-
 # First layout template
 def template (filename, date, timeKey):
     filename = "Filename: " + filename
     date = "Last modified: " + str(datetime.datetime.fromtimestamp(date))
     timeKey = "Time format: " + timeKey
+    option = []
+    for name in messagePerUser.user:
+        nameDict = {}
+        nameDict['label'] = name
+        nameDict['value'] = name
+        option.append(nameDict)
 
     return html.Div([
         html.H5(filename),
@@ -110,31 +101,30 @@ def template (filename, date, timeKey):
         ),
 
         html.Hr(),  # horizontal line
+        html.Br(),
 
-        dcc.Graph(
-            id='overall-graph',
-            figure={
-                'data': [
-                    go.Scatter(
-                        x = messageCount.date,
-                        y = messageCount.message_count,
-                        mode = 'lines+markers',
-                        marker = {
-                            'size': 12,
-                            'color': 'rgb(51,204,153)',
-                            'symbol': 'pentagon',
-                            'line': {'width': 1}
-                        }
-                    )
-                ],
-                'layout': go.Layout(
-                    title = 'Overall Messages Count',
-                    xaxis = {'title': 'Date'},
-                    yaxis = {'title': 'Message Count'},
-                    hovermode='closest'
-                )
-            }
+        html.Div([
+            dcc.Dropdown(
+                id = 'names', 
+                options = option, 
+                placeholder = 'Select user', 
+                multi = True
+            )
+        ],
+            style = {'display' : 'inline-block', 'verticalAlign' : 'top', 'width' : '30%'}
         ),
+        html.Div([
+            dcc.Dropdown(
+                id = 'graph',
+                options = [{'label': 'Line plot', 'value': 'Line'}, {'label': 'Bubble plot', 'value': 'Bubble'}, {'label': 'Bar plot', 'value': 'Bar'}],
+                value = 'Line',
+                multi = False
+            )
+        ],
+            style = {'display': 'inline-block', 'verticalAlign': 'top', 'width': '30%', 'margin-left': '30px'}
+        ),
+
+        dcc.Graph(id='overall-graph'),
 
         html.Hr(),
 
@@ -189,6 +179,94 @@ def template (filename, date, timeKey):
 
         html.Hr(),
     ])
+
+# Select name in overall messages
+@app.callback(Output('overall-graph', 'figure'),
+              Input('names', 'value'),
+              Input('graph', 'value'))
+def selectName (names, graph): # utilize graph here
+    mode = 'lines+markers'
+    marker = {'size': 12, 'symbol': 'circle'}
+    data = [
+        go.Scatter(
+            x = messageCount.date,
+            y = messageCount.message_count,
+            mode = mode,
+            marker = marker
+        )
+    ]
+    
+    if graph == 'Bubble':
+        mode = 'markers'
+        marker = dict(size=3*messageCount.message_count)
+        data = [
+            go.Scatter(
+                x = messageCount.date,
+                y = messageCount.message_count,
+                mode = mode,
+                marker = marker
+            )
+        ]
+    elif graph == 'Bar':
+        data = [
+            go.Bar(
+                x = messageCount.date,
+                y = messageCount.message_count,
+                marker = {'color': 'rgb(51,204,153)'}
+            )
+        ]   
+
+    figure = {
+            'data': data,
+            'layout': go.Layout(
+                title = 'Overall Messages Count',
+                xaxis = {'title': 'Date'},
+                yaxis = {'title': 'Message Count'},
+                hovermode='closest'
+            )
+        }
+
+    if names is not None:
+        if len(names):
+            # traces = []
+            data.clear()
+            messageByUser = df.copy()
+            messageByUser = messageByUser.drop(['day', 'month', 'year', 'date_time', 'index'], axis=1)
+            messageByUser['message_count'] = [1] * messageByUser.shape[0]
+            
+            for name in names:
+                tempNameList = messageByUser[messageByUser.user == name].groupby('date').sum().reset_index()
+                if graph == 'Bubble':
+                    mode = 'markers'
+                    marker = dict(size=3*tempNameList.message_count)
+                    data.append(go.Scatter(
+                        x = tempNameList.date,
+                        y = tempNameList.message_count,
+                        mode = mode,
+                        name = name,
+                        marker = marker
+                    ))
+                elif graph == 'Bar':
+                    data.append(go.Bar(
+                        x = tempNameList.date,
+                        y = tempNameList.message_count,
+                        name = name
+                    ))
+                else:
+                    data.append(go.Scatter(
+                        x = tempNameList.date,
+                        y = tempNameList.message_count,
+                        mode = mode,
+                        name = name,
+                        marker = marker
+                    ))
+                # traces.append(data)
+            fig = {'data': data, 'layout': go.Layout(title = 'User Messages Count', xaxis = {'title': 'Date'}, yaxis = {'title': 'Message Count'}, hovermode='closest')}
+            return fig
+        else:
+            return figure
+    else:
+        return figure
 
 # Processor function to turn raw data file into a dataframe
 def rawToDf (file, timeKey):
@@ -318,7 +396,22 @@ def uploadData (timeKey, content, filename, date):
             fileCheck = False
             return children
         else:
-            return html.Div("There was a problem parsing the file, have you entered the correct date format?")
+            return html.Div("Please enter your mobile phone's correct date format")
+
+# File upload text change
+@app.callback(Output('upload-data', 'children'),
+              Input('upload-data', 'filename'))
+def fileUpload (filename):
+    if filename is None:
+        return html.Div([
+            'Drag and Drop or ',
+            html.A('Select Files')
+        ])
+    else:
+        return html.Div([
+            filename,
+            html.A(' Update file')
+        ])
 
 if __name__ == '__main__':
     app.run_server(debug=True)
